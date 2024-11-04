@@ -1,0 +1,27 @@
+version: "2.4"
+
+services:
+  orbits-server:
+    image: orbits:latest
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: postgres:13-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    read_only: true
+    ports:
+      - "5432:5432"
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=orbits
