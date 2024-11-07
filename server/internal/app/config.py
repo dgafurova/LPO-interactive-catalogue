@@ -7,6 +7,6 @@ db_hostname = "postgres"
 db_name = "orbits"
 db_port = "5432"
 
-api_token = "d6924fadef8cab52"
+api_token = ""
 
 api_v1 = "/api/v1"
