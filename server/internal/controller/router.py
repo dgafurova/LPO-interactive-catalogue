@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from internal.controller import libration_points_router, orbits_router, trajectories_router, poincare_sections_router
 
+
 router = APIRouter()
 router_list = [libration_points_router, orbits_router, trajectories_router, poincare_sections_router]
 

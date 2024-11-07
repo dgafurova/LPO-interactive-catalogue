@@ -2,6 +2,9 @@ from internal.infra.db import DB
 from internal.app.config import db_user, db_password, db_hostname, db_name, db_port
 from internal.db import LibrationPointRepo, OrbitRepo, OrbitFamilyRepo, TrajectoryRepo, PoincareSectionRepo
 from internal.usecase import LibrationPointUnit, OrbitUnit, TrajectoryUnit, PoincareSectionUnit
+from fastapi.security import OAuth2PasswordBearer
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # db = DB(f'postgresql+psycopg2://{db_user}:{db_password}@{db_hostname}:{db_port}/{db_name}')
 db = DB(f'postgresql://{db_user}:{db_password}@{db_hostname}:{db_port}/{db_name}')

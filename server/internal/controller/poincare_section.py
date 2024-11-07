@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Depends
 from pydantic import BaseModel
 from internal.app.app import poincare_section_unit
 from internal.model.error import NotValidError
 from typing import Annotated
 from typing import List
+from internal.controller.middleware import verify_token
 
 
 poincare_sections_router = APIRouter(
@@ -32,7 +33,7 @@ async def get_by_id(
 
 
 @poincare_sections_router.post("")
-async def create_poincare_section(body: CreatePoincareSectionJSON):
+async def create_poincare_section(_: Annotated[str, Depends(verify_token)], body: CreatePoincareSectionJSON):
     validation_create_poincare_section(body.v)
     poincare_section_unit.create_poincare_section(body.orbit_id, body.plane, body.v)
 

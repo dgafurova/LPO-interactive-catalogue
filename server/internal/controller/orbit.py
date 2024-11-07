@@ -4,6 +4,7 @@ from internal.app.app import orbit_unit
 from typing import List, Annotated, Optional
 from pydantic import BaseModel
 from internal.model.orbit import Orbit
+from internal.controller.middleware import verify_token
 
 
 class OrbitMap(BaseModel):
@@ -93,7 +94,7 @@ orbits_router = APIRouter(
 
 
 @orbits_router.post("", response_model=dict)
-async def create_orbit(orbit: CreateOrbitJSON):
+async def create_orbit(_: Annotated[str, Depends(verify_token)], orbit: CreateOrbitJSON):
     orbit_id = orbit_unit.create_orbit(orbitJSON_to_orbit(orbit), orbit.tags)
     return {"id": orbit_id}
 

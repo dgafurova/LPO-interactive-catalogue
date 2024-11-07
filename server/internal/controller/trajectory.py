@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Depends
 from pydantic import BaseModel
 from internal.app.app import trajectory_unit
 from internal.model.error import NotValidError
 from typing import Annotated, List
+from internal.controller.middleware import verify_token
 
 
 trajectories_router = APIRouter(
@@ -33,7 +34,7 @@ async def get_by_id(orbit_id: Annotated[int, Path(title="Orbit ID", ge=1)]):
 
 
 @trajectories_router.post("")
-async def create_trajectory(body: CreateTrajectoryJSON):
+async def create_trajectory(_: Annotated[str, Depends(verify_token)], body: CreateTrajectoryJSON):
     validation_create_trajectory(body.v)
     trajectory_unit.create_trajectory(body.orbit_id, body.v)
 
