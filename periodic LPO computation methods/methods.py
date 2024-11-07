@@ -1,3 +1,8 @@
+# Для расчета следующей орбиты в семействе используется функция compute_goal_function. 
+# По известному начальному состоянию периодической орбиты, обладающей симметрией относительно плоскости xz (current_state = (x, 0, z, 0, v, 0)) и её сечению Пуанкаре (ev_ref) эта функция функция рассчитывает начальное условие следующей орбиты из семейства, которое параметризуется как (x + r cos(alpha), 0, z + r sin (alpha), 0, v1).
+# Для каждого значения параметра alpha начальная скорость рассчитывается с помощью функции find_v.
+# Для расчета начальных условий орбит, обладающих симметрией только относительно оси x, используется функция find_next_point_axis
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -860,3 +865,135 @@ def prop_corr_fm(dv_list, model, draw=False, ax=None, lw=2):
     if draw and ax is None:
         return np.vstack(arrays), np.vstack(evs), Phi, ax1
     return np.vstack(arrays), np.vstack(evs), Phi
+
+
+def find_next_point_axis(ref, delta_v, alpha0, n, model, plane='z', goal=None,
+                    alpha_dx=1e-3, alpha_dxmax=1e-2, alpha_tol=1e-16, K=20,
+                    x_dx=1e-3, x_dxmax=1e-5, x_tol=1e-12, change_goal=True, nes=4,
+                    beta=0, verbose=False, corr=False, corrK=4, corrL=4, ips=1, ret_dv=False):
+    if plane == 'z':
+        det = evint.event_detector(model, events=[evint.eventZ(count=n)])
+        stm_det = evint.event_detector(stmmodel, events=[evint.eventZ(count=n)])
+    elif plane == 'y':
+        det = evint.event_detector(model, events=[evint.eventY(count=n)])
+        stm_det = evint.event_detector(stmmodel, events=[evint.eventY(count=n)])
+    
+    if goal is None:
+        ref_g = model.get_zero_state()
+        ref_g[[0, 4, 5]] = ref[[0, 4, 5]]
+        arr_ref, goal = det.prop(ref_g, 0., 20. * np.pi, last_state='last')
+    ev_ref = goal
+
+    print('ref', ref[:6])
+    opt0 = sm.optimizer()
+    opt0.dx = alpha_dx
+    opt0.dxmax = alpha_dxmax
+    opt0.tolerance = alpha_tol
+    opt0.output = True
+
+    x = ref[0]
+    x1 = x
+    distvals = np.array([100, x1, 0, 0, 0])
+    dvsmin = []
+
+    for k in range(K):
+        if not opt0.needNextStep(): break
+
+        vy1 = ref[4] + delta_v * np.cos(alpha0)
+        vz1 = ref[5] + delta_v * np.sin(alpha0)
+        cur = model.get_zero_state()
+        cur[0], cur[4], cur[5] = x, vy1, vz1
+
+        # Computation of the x
+        # print("x1 guess is", cur[0], end='\t')
+        x1, _ = find_x(cur, ev_ref, model, plane=plane, dx=x_dx, dxmax=x_dxmax, tol=x_tol, 
+                    check_dx=verbose, change_goal=change_goal, nes=nes)
+        # print("x1 is", x1, end='\t')
+
+        # Computation of the goal functions
+        # Computation of the distance between initial state vector and state vector propagated for one period
+        arr1, ev1 = det.prop(cur, 0., 10. * np.pi, ret_df=False, last_state='last')
+        if not corr:
+            if plane == 'y':
+                dist = np.linalg.norm(cur[[0, 4, 5]] - ev1[-1, [4, 8, 9]])
+            elif plane == 'z':
+#                 dist = np.linalg.norm(ev1[-1, [4, 8, 9]] - ev1[0, [4, 8, 9]])
+                dist = np.linalg.norm(cur[[0, 4, 5]] - ev1[-1, [4, 8, 9]])
+        else:
+            dist, dvs = correction(x1, vy1, vz1, ev_ref, model, plane=plane, corrK=corrK, corrL=corrL, ips=ips, 
+                                   change_goal=change_goal, verbose=False, draw=False, ret_dv=ret_dv)
+            
+        # Computation of Floquet multipliers
+        mult = 1
+        if beta > 0:
+            stm_cur = model.get_zero_state()
+            stm_cur[:6] = cur[:6]
+            arr1, ev1 = stm_det.prop(stm_cur, 0., 10. * np.pi, ret_df=False, last_state='last')
+            if plane == 'z':
+                Phi1 = get_Phi(arr1[-1], model)
+            elif plane == 'y':
+                ev1y = ev1[ev1[:, 0] == 0]
+                Phi1 = get_Phi(ev1y[-1], model)
+            ind = np.argmin(abs(np.linalg.eig(Phi1)[0] - 1))
+            mult = np.linalg.eig(Phi1)[0][ind]
+        dist_mult = np.abs(mult - (1 + 0j))
+        
+        goal = dist_mult * beta + dist * (1 - beta)
+        #print(cur[0], cur[4], cur[5])
+        print(f"{k+1}/{K}\t Alpha {alpha0 / np.pi * 180:2.2f}\t Goal {goal}")
+        
+        
+        if goal < distvals[0]:
+            distvals = [goal, x1, mult, dist, dist_mult]
+            if ret_dv:
+                dvsmin = dvs
+        
+        alpha0 = opt0.nextX(alpha0, goal**2)
+    alpha0, goal = opt0.getXY()
+    if ret_dv:
+        return alpha0, distvals[1], distvals[3], dvsmin
+    return alpha0, distvals[1], distvals[3], distvals[4]
+
+def find_x(cur, goal, model, plane='z', dx=1e-3, dxmax=1e-5, check_dx=False, change_goal=True, nes=4, tol=1e-12):
+    n = goal.shape[0]
+    x1 = cur[0]
+    goal_mod = goal.copy()
+    #print('Computing dv')
+    for i in range(n + nes):
+        opt = sm.optimizer()
+        opt.dx = dx
+        opt.dxmax = dxmax
+        opt.tolerance = tol
+
+        opt.dx /= 1.20 ** i
+        opt.dxmax /= 1.20 ** i
+        
+        if change_goal:
+            goal_mod.iloc[n - 1, 4:10] = cur[:6]
+
+        if change_goal and (i >= n) and (i < 2 * n - 1):
+            if plane == 'y':
+                det_i = evint.event_detector(model, events=[op.eventY(count=(i + 1) % n)])
+            elif plane == 'z':
+                det_i = evint.event_detector(model, events=[op.eventZ(count=(i + 1) % n)])
+            _, ev1 = det_i.prop(cur, 0., 20. * np.pi, last_state='last')
+            goal_mod[i % n] = ev1.iloc[-1]
+
+        for j in range(100):
+            if not opt.needNextStep(): break
+            if plane == 'y':
+                det_i = evint.event_detector(model, events=[op.eventY(count=i+1)])
+            elif plane == 'z':
+                det_i = evint.event_detector(model, events=[op.eventZ(count=i+1)]) 
+            arr1, ev1 = det_i.prop(cur, 0., 20. * np.pi, last_state='last')
+            
+            dist = np.linalg.norm(ev1.iloc[-1, 4:10] - goal_mod.iloc[i % n, 4:10])
+            x1 = opt.nextX(x1, dist)
+            cur[0] = x1
+        x1, dist = opt.getXY()
+
+        if check_dx:
+            print(f"Step number {i+1}", end='\t')
+            print(f"difference {abs(x1 - cur[4])}, \t number of optimization steps {j+1}, goal function {dist}")
+    return x1, dist
+
